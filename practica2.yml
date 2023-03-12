@@ -1,0 +1,135 @@
+---
+- name: Práctica2 de laboratorio
+  gather_facts: true
+  hosts: all
+  become: true
+  tasks:
+    - name: Instalar mysql server, pip y phpmysqli
+      apt:
+        name: "mysql-server, pip, php-mysqli"
+
+    - name: Iniciar servicio de mysql
+      shell: systemctl start mysql
+
+    - name: Instalar modulo libapache2-mod-php
+      apt:
+        name: libapache2-mod-php
+
+    - name: Instalar apache2 y php
+      apt:
+        name: "apache2, php"
+
+#Importar la base de datos a mysql
+
+    - name: Ejecutar archivo .sql en MySQL
+      ignore_errors: yes
+      mysql_db:
+        name: residencias
+        state: import
+        target: /home/sigg/myfolder/residencias.sql
+        login_user: "root"
+        login_password: "1234"
+
+#Configuracion de la pagina web en la ruta default
+
+    - name: Configurar ip en apache
+      lineinfile:
+        path: /etc/apache2/sites-available/000-default.conf
+        regexp: '^ServerName'
+        line: 'ServerName 192.168.1.9'
+
+    - name: Escribir configuracion en el archivo
+      copy:
+        dest: /etc/apache2/sites-available/000-default.conf
+        content: |
+          <VirtualHost *:80>
+            ServerName www.lcasillas.com
+            ServerAlias www.lcasillas.com
+            DocumentRoot /var/www/html
+            ErrorLog ${APACHE_LOG_DIR}/error.log
+            CustomLog ${APACHE_LOG_DIR}/access.log combined
+          </VirtualHost>
+
+    - name: Modificar archivo dir.conf para que use index.php primero
+      replace:
+        path: /etc/apache2/mods-enabled/dir.conf
+        regexp: 'DirectoryIndex (.*)$'
+        replace: 'DirectoryIndex index.php \1'
+
+    - name: Copiar página en apache2
+      copy:
+        src: /home/sigg/Descargas/Curriculum/
+        dest: /var/www/html/
+        owner: www-data
+        group: www-data
+        mode: 0750
+
+#Importando la aplicacion web en app.adriancasillas.com
+
+    - name: Crear carpeta del sitio web
+      file:
+        path: /var/www/lcasillas.com
+        state: directory
+
+    - name: Copiar la página a la carpeta creada
+      copy:
+        src: /home/sigg/Descargas/TallerBaseDatos-mysqlVersion/
+        dest: /var/www/lcasillas.com
+        owner: www-data
+        group: www-data
+        mode: 0750
+
+    - name: "Crear archivo de configuracion"
+      file:
+        path: /etc/apache2/sites-available/lcasillas.com.conf
+        state: touch
+        mode: 0750
+
+    - name: Escribir configuracion en el archivo
+      copy:
+        dest: /etc/apache2/sites-available/lcasillas.com.conf
+        content: |
+          <VirtualHost *:80>
+            ServerName lcasillas.com
+            ServerAlias app.lcasillas.com
+            DocumentRoot /var/www/lcasillas.com
+            ErrorLog ${APACHE_LOG_DIR}/error.log
+            CustomLog ${APACHE_LOG_DIR}/access.log combined
+          </VirtualHost>
+
+    - name: Activar el archivo de configuracion
+      shell: a2ensite lcasillas.com.conf
+
+    - name: Reiniciar el servidor de apache
+      shell: systemctl restart apache2
+
+#Configurando el trafico de datos para el puerto 80
+
+    - name: Permitir tráfico HTTP en el puerto 80
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: 80
+        jump: ACCEPT
+
+#Eliminando cuentas anonimas y base de datos de prueba
+
+    - name: Eliminar cuentas de usuario anónimas
+      mysql_db:
+        login_user: 'root'
+        login_password: '1234'
+        login_host: localhost
+        name: ""
+        state: absent
+      become: true
+      become_user: root
+
+    - name: Eliminar base de datos de pruebas
+      mysql_db:
+        login_user: root
+        login_password: '1234'
+        login_host: localhost
+        name: test
+        state: absent
+      become: true
+      become_user: root
